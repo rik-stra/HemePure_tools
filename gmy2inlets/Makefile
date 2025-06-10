@@ -9,6 +9,7 @@
 #In general, usr may refer to HemePure/dep/install directory
 #CFLAGS = -I/<folderlocation>/HemePure/dep/install/include/tirpc
 #LFLAGS = -L/<folderlocation>/HemePure/dep/install/lib
+codedir = [folderlocation]
 
 all: gmy2lets sgmy2lets
 
@@ -18,13 +19,15 @@ clean:
 	rm -f gmy2lets sgmy2lets
 	
 gmy2lets: gmy2lets.cc
-	g++ -O3 -Wall -I/usr/include/tirpc gmy2lets.cc -lz -L/usr/lib -ltirpc -o gmy2lets
+#	g++ -O3 -Wall -I/usr/include/tirpc gmy2lets.cc -lz -L/usr/lib -ltirpc -o gmy2lets
+	g++ -O3 -Wall -I/$(codedir)/HemePure/dep/install/include/tirpc gmy2lets.cc -lz -L/$(codedir)/HemePure/dep/install/lib -ltirpc -o gmy2lets
 
 gmy2lets_debug: gmy2lets.cc
 	g++ -Wall -g -I/usr/include/tirpc gmy2lets.cc -lz -L/usr/lib -ltirpc -o gmy2lets
 
 sgmy2lets: sgmy2lets.cc
-	g++ -O3 -Wall -I/usr/include/tirpc sgmy2lets.cc -lz -L/usr/lib -ltirpc -o sgmy2lets
+	#g++ -O3 -Wall -I/usr/include/tirpc sgmy2lets.cc -lz -L/usr/lib -ltirpc -o sgmy2lets
+	g++ -O3 -Wall -I/$(codedir)/HemePure/dep/install/include/tirpc sgmy2lets.cc -lz -L/$(codedir)/HemePure/dep/install/lib -ltirpc -o sgmy2lets
 
 sgmy2lets_debug: sgmy2lets.cc
 	g++ -Wall -g -I/usr/include/tirpc sgmy2lets.cc -lz -L/usr/lib -ltirpc -o sgmy2lets
