@@ -2,6 +2,10 @@
 .sconsign.dblite
 voxelAndLinks.zip
 voxelizer/palabos/
-voxelizer/source/voxelizer
-voxelizer/source/voxelizer.o
+voxelizer/source/voxelizer_MultiInput
+voxelizer/source/voxelizer_MultiInput.o
 vx2gmy/mpivx2gmy
+__pycache__/
+gmy2inlets/gmy2inlets
+gmy2inlets/gmy2lets
+gmy2inlets/sgmy2lets

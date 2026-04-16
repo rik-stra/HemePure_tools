@@ -1,12 +1,16 @@
 import os, sys
+import math
+import shutil
 import numpy as np
 
-VOXELIZERPATH = "./execs/voxelizer_MultiInput"
-MAKEGMYMPIPATH = "./execs/make_gmy_MPI.sh"
-VX2GMYPATH = "./execs/mpivx2gmy"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-GMY2LETSPATH = "./execs/gmy2lets"
-INFLOWPROFILEBUILDERPATH = "./execs/inflow-profile-builder/inflow_named3.py"
+VOXELIZERPATH = os.path.join(SCRIPT_DIR, "voxelizer", "source", "voxelizer_MultiInput")
+MAKEGMYMPIPATH = os.path.join(SCRIPT_DIR, "vx2gmy", "make_gmy_MPI.sh")
+VX2GMYPATH = os.path.join(SCRIPT_DIR, "vx2gmy", "mpivx2gmy")
+
+GMY2LETSPATH = os.path.join(SCRIPT_DIR, "gmy2inlets", "gmy2lets")
+INFLOWPROFILEBUILDERPATH = os.path.join(SCRIPT_DIR, "inflow-profile-builder", "inflow_named3.py")
 
 VX2GMY_CHUNKSIZE = 10000
 
@@ -15,6 +19,21 @@ def execute(command):
         r = os.system(command)
         if r != 0:
                 sys.exit("Command failed.")
+
+def build_parallel_launch(num_ranks, num_nodes, cores_per_rank):
+    if shutil.which("srun"):
+        return "srun -n " + str(num_ranks) + " -N " + str(num_nodes) + " -c " + str(cores_per_rank) + " --unbuffered"
+    if shutil.which("mpirun"):
+        return "mpirun -n " + str(num_ranks)
+    if shutil.which("mpiexec"):
+        return "mpiexec -n " + str(num_ranks)
+    sys.exit("No parallel launcher found. Install/activate Slurm (srun) or MPI (mpirun/mpiexec).")
+
+def check_executable(path, label):
+    if not os.path.isfile(path):
+        sys.exit(label + " not found: " + path)
+    if not os.access(path, os.X_OK):
+        sys.exit(label + " is not executable: " + path + " (run: chmod +x " + path + ")")
 
 def transform_to_lattice(pos, dx, shifts):
     return pos/dx + shifts
@@ -98,14 +117,21 @@ if len(sys.argv) != 10:
 
 NUMRANKS = int(sys.argv[-3])
 RANKSPERNODE = int(sys.argv[-2])
-CORESPERRANK=64/RANKSPERNODE
+CORESPERRANK = max(1, 64 // RANKSPERNODE)
+NUMNODES = max(1, int(math.ceil(float(NUMRANKS) / float(RANKSPERNODE))))
 tauDes = float(sys.argv[-1])
+
+PARALLEL_LAUNCH = build_parallel_launch(NUMRANKS, NUMNODES, CORESPERRANK)
+
+check_executable(VOXELIZERPATH, "voxelizer executable")
+check_executable(VX2GMYPATH, "vx2gmy executable")
+check_executable(GMY2LETSPATH, "gmy2lets executable")
 
 STLFNAME = sys.argv[1]
 STLUNITS = float(sys.argv[2])
 #INLETS = [np.float_(iolet.split(",")) for iolet in (sys.argv[3]).split(";")]
 with open(sys.argv[3]) as inletList:
-    INLETS = [np.float_(iolet.split(",")) for iolet in inletList.readline().split(";")]
+    INLETS = [np.float64(iolet.split(",")) for iolet in inletList.readline().split(";")]
 NUMINLETS = int(sys.argv[4])
 NUMOUTLETS = int(sys.argv[5])
 DXreq = np.float64(sys.argv[6])
@@ -129,7 +155,7 @@ outletpos0 = [np.array([0.0,0.0,0.0]) for i in range(NUMOUTLETS)]
 write_voxelizer_xml(xmlfname, DXreq/STLUNITS, DXreq, STLFNAME, inletpos0, outletpos0)
 
 # Run voxelizer but end early, dumping only the ioletpositions
-execute("srun -n " + str(int(NUMRANKS)) + " -N  " + str(int(NUMRANKS/RANKSPERNODE)) + " -c "+str(int(CORESPERRANK))+"  --unbuffered "  + VOXELIZERPATH + " " + xmlfname + "  ENDEARLY\n")
+execute(PARALLEL_LAUNCH + " " + VOXELIZERPATH + " " + xmlfname + " ENDEARLY")
 
 iolet_list = []
 dx = None
@@ -204,7 +230,7 @@ for ioindex, ioletpos in enumerate(iolet_list):
 write_voxelizer_xml(xmlfname, DXreq/STLUNITS, DXreq, STLFNAME, inletposlist, outletposlist)
 
 # Run voxelizer to completion this time
-execute("srun -n " + str(int(NUMRANKS)) + " -N " + str(int(NUMRANKS/RANKSPERNODE)) + " -c "+str(int(CORESPERRANK))+"  --unbuffered " + VOXELIZERPATH + " " + xmlfname + "\n")
+execute(PARALLEL_LAUNCH + " " + VOXELIZERPATH + " " + xmlfname)
 
 # Catting many files should no longer be required. The voxelizer should dump just one large file.
 execute("rm -f fluidsAndLinks.plb")
@@ -225,7 +251,7 @@ for t in range(len(BCExtensions)):
     write_heme_xml(tauDes, hemexmlfname, gmyfname, gmy_resolution, ioletsblocktxt, dx*shifts) #JM had - shiftMaster here
 
 # Convert the voxelizer output into a hemelb gmy file
-execute("srun -n " + str(int(NUMRANKS)) + " -N  " + str(int(NUMRANKS/RANKSPERNODE)) + " -c "+str(int(CORESPERRANK))+"  --unbuffered "  + VX2GMYPATH + " ./fluidsAndLinks.dat __make_gmy_MPI_test.gmy " + str(VX2GMY_CHUNKSIZE) + "\n")
+execute(PARALLEL_LAUNCH + " " + VX2GMYPATH + " ./fluidsAndLinks.dat __make_gmy_MPI_test.gmy " + str(VX2GMY_CHUNKSIZE))
 execute("cat __make_gmy_MPI_test.gmy __make_gmy_MPI_test.gmy_blockdata_temp_ > "+ gmyfname+"\n")
 
 ## Create the velocity weights file 
@@ -236,7 +262,7 @@ execute(GMY2LETSPATH + " " + gmyfname + " " + inletsfname + " INLET \n")
 execute("python3 " + INFLOWPROFILEBUILDERPATH + " " + inletsfname + " 0 INLET \n")
 
 for ilet in range(0,NUMINLETS): 
-    execute("cp out" + str(ilet) + ".txt.weights.txt INLET" + str(ilet) + "_VELOCITY.txt.weights.txt\n") 
+    execute("cp in" + str(ilet) + ".txt.weights.txt INLET" + str(ilet) + "_VELOCITY.txt.weights.txt\n") 
 
 ## Create the windkessel weights file 
 if not os.path.exists('OutletImages'):
@@ -247,4 +273,16 @@ execute("python3 " + INFLOWPROFILEBUILDERPATH + " " + outletsfname + " 0 OUTLET 
 
 for ilet in range(0,NUMOUTLETS): 
     execute("cp out" + str(ilet) + ".txt.weights.txt OUTLET" + str(ilet) + "_WK.txt.weights.txt\n") 
+
+# Clean up temporary files
+print("Cleaning up temporary files...")
+execute("rm -f " + inletsfname)
+execute("rm -f " + outletsfname)
+execute("rm -f __make_gmy_MPI_test.gmy __make_gmy_MPI_test.gmy_blockdata_temp_")
+execute("rm -f fluidsAndLinks.dat")
+execute("rm -f iolets_block_inputxml_*.txt")
+for ilet in range(0,NUMINLETS):
+    execute("rm -f in" + str(ilet) + ".txt.weights.txt")
+for ilet in range(0,NUMOUTLETS):
+    execute("rm -f out" + str(ilet) + ".txt.weights.txt")
 
